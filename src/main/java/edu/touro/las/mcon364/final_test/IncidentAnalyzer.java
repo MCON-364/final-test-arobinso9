@@ -33,7 +33,7 @@ public class IncidentAnalyzer {
     /**
      * Store the incidents that this analyzer will examine.
      * The constructor should make a defensive copy of the list to prevent
-     * external modification of the internal state of this class. If the input list is null, throw an IllegalArgumentException.
+     * external modification of the internal state of this class. If the input list is null, throw an NullPointerException.
      */
     public IncidentAnalyzer(List<SupportTicket> incidents) {
        //TODO - implement this constructor
