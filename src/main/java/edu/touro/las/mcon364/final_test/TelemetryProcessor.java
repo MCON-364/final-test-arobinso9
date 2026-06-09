@@ -1,6 +1,9 @@
 package edu.touro.las.mcon364.final_test;
 
 import java.util.DoubleSummaryStatistics;
+import java.util.concurrent.*;
+import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicReference;
 
 /**
  * TelemetryProcessor – concurrent sensor-data pipeline
@@ -32,8 +35,14 @@ import java.util.DoubleSummaryStatistics;
 public class TelemetryProcessor {
 
     // ── declare whatever fields you need ─────────────────────────────────────
+    private final BlockingQueue<TelemetryEvent> queue= new LinkedBlockingQueue<>();
+    private final AtomicInteger totalProcessed = new AtomicInteger(0);
+    private final AtomicReference<DoubleSummaryStatistics> stats = new AtomicReference<>(new DoubleSummaryStatistics());
+    private volatile boolean isRunning= false;
+    private ExecutorService executor ;
 
     // ── public API ────────────────────────────────────────────────────────────
+    //  WHAT DO I DO HERE???
 
     /**
      * Add an event to the processing queue.
@@ -45,6 +54,12 @@ public class TelemetryProcessor {
      */
     public void submit(TelemetryEvent event) {
         //TODO - implement this method
+        if(event==null)
+            throw new IllegalArgumentException("event can't be null");
+
+        if(isRunning) {
+            queue.offer(event);
+        }
     }
 
     /**
@@ -54,6 +69,16 @@ public class TelemetryProcessor {
      */
     public void start(int workerCount) {
         //TODO - implement this method
+        if (workerCount <= 0)
+            throw new IllegalArgumentException("workerCount must be at least 1");
+
+        isRunning = true;
+        executor = Executors.newFixedThreadPool(workerCount);
+
+        // Submit the worker loops to run concurrently in the background - getting the workers started! :)
+        for (int i = 0; i < workerCount; i++) {
+            executor.submit(this::workerLoop);
+        }
     }
 
     /**
@@ -62,6 +87,16 @@ public class TelemetryProcessor {
      */
     public void stop() throws InterruptedException {
         //TODO - implement this method
+        isRunning = false;
+        if (executor != null) {
+            executor.shutdown();
+            executor.awaitTermination(10, TimeUnit.SECONDS);
+        }
+
+        // now we need to drain the queue - we process the remaining messages on the main thread
+        TelemetryEvent event;
+        while((event=queue.poll())!=null)
+            process(event);
     }
 
     /**
@@ -69,7 +104,7 @@ public class TelemetryProcessor {
      */
     public int getTotalProcessed() {
         //TODO - implement this method
-        return 0;
+        return totalProcessed.get();
     }
 
     /**
@@ -82,6 +117,36 @@ public class TelemetryProcessor {
      */
     public DoubleSummaryStatistics getStats() {
         //TODO - implement this method
-        return null;
+        DoubleSummaryStatistics snapshot = new DoubleSummaryStatistics();
+        snapshot.combine(stats.get());
+        return snapshot;
     }
+
+    private void process(TelemetryEvent event) {
+        totalProcessed.incrementAndGet();
+
+        stats.updateAndGet(existing -> {
+            DoubleSummaryStatistics updated = new DoubleSummaryStatistics();
+            updated.combine(existing);
+            updated.accept(event.metric());
+            return updated;
+        });
+    }
+
+    private void workerLoop() {
+        while (isRunning || !queue.isEmpty()) {
+            try {
+                TelemetryEvent event= queue.poll(100, java.util.concurrent.TimeUnit.MILLISECONDS);
+                if (event != null) {
+                    // Process the event
+                    process(event);
+                }
+            } catch (Exception e) {
+                // Handle any exceptions that occur during processing
+                e.printStackTrace();
+            }
+        }
+    }
+
+
 }
